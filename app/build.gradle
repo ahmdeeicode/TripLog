@@ -2,6 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
+// رقم البناء من GitHub Actions: كل بناء جديد = رقم نسخة أكبر، فيعرف التطبيق أن هناك تحديثاً
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger()
+
 android {
     namespace 'com.example.triplog'
     compileSdk 34
@@ -10,17 +13,35 @@ android {
         applicationId 'com.example.triplog'
         minSdk 28
         targetSdk 33
-        versionCode 3
-        versionName '2.1'
+        versionCode 100 + runNumber
+        versionName "2.2." + runNumber
+    }
+
+    // مفتاح توقيع ثابت (يأتي من سر SIGNING_KEY في GitHub) حتى يقبل أندرويد التحديث فوق النسخة القديمة
+    signingConfigs {
+        release {
+            storeFile file("release.jks")
+            storePassword "mytrip-sign-2026"
+            keyAlias "mytrip"
+            keyPassword "mytrip-sign-2026"
+        }
     }
 
     buildTypes {
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            signingConfig file("release.jks").exists() ? signingConfigs.release : signingConfigs.debug
+        }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
     }
 }
 

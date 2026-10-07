@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.provider.Settings;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,6 +35,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private FrameLayout content;
     private boolean showingLive;
+    private TextView updateBtn;
+    private Updater.Info pendingUpdate;
 
     // قراءة معاينة عندما لا توجد رحلة (لترى أن الاتصال يعمل قبل البدء)
     private CarBridge preview;
@@ -61,7 +65,13 @@ public class MainActivity extends Activity {
         LinearLayout header = Ui.row(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = Ui.text(this, "رحلتي  ·  My Trip", 30, Ui.TEXT, true);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        header.addView(title);
+        TextView ver = Ui.text(this, "  v" + Updater.installedName(this), 15, Ui.MUTED, false);
+        header.addView(ver, new LinearLayout.LayoutParams(0, -2, 1f));
+        updateBtn = Ui.text(this, "⟳  تحديث", 18, Ui.MUTED, false);
+        updateBtn.setPadding(p, p / 2, p, p / 2);
+        updateBtn.setOnClickListener(v -> onUpdateClicked());
+        header.addView(updateBtn);
         TextView diag = Ui.text(this, "⚙  تشخيص", 18, Ui.MUTED, false);
         diag.setPadding(p, p / 2, p, p / 2);
         diag.setOnClickListener(v -> showDiagnostics());
@@ -75,6 +85,108 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         if (store.loadActive() != null) TripService.start(this); // استئناف رحلة لم تُنهَ
+        checkUpdateQuietly();
+    }
+
+    // ======================= التحديث =======================
+    /** فحص صامت عند الفتح: إذا وُجدت نسخة أحدث يتغير لون الزر. */
+    private void checkUpdateQuietly() {
+        new Thread(() -> {
+            try {
+                Updater.Info i = Updater.fetchLatest();
+                if (i != null && i.code > Updater.installedCode(this)) {
+                    ui.post(() -> {
+                        pendingUpdate = i;
+                        updateBtn.setText("⬆  تحديث متوفر");
+                        updateBtn.setTextColor(Ui.GOOD);
+                    });
+                }
+            } catch (Exception ignored) { }
+        }).start();
+    }
+
+    private void onUpdateClicked() {
+        if (tripActive()) {
+            message("أنهِ الرحلة الجارية أولاً، ثم حدّث التطبيق.");
+            return;
+        }
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("خطوة لمرة واحدة")
+                    .setMessage("لكي يحدّث التطبيق نفسه، اسمح له بتثبيت التطبيقات.\n\n"
+                            + "اضغط \"فتح الإعدادات\"، ثم فعّل خيار السماح، وارجع واضغط تحديث مرة أخرى.")
+                    .setPositiveButton("فتح الإعدادات", (d, w) -> {
+                        try {
+                            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName())));
+                        } catch (Exception e) {
+                            message("لم أستطع فتح الإعدادات تلقائياً. افتحها يدوياً: التطبيقات ← رحلتي ← تثبيت تطبيقات غير معروفة.");
+                        }
+                    })
+                    .setNegativeButton("إلغاء", null)
+                    .show();
+            return;
+        }
+        TextView status = Ui.text(this, "جاري البحث عن تحديث…", 18, Ui.TEXT, false);
+        status.setPadding(Ui.dp(this, 24), Ui.dp(this, 20), Ui.dp(this, 24), Ui.dp(this, 20));
+        AlertDialog dlg = new AlertDialog.Builder(this).setView(status).setCancelable(false).show();
+        new Thread(() -> {
+            try {
+                Updater.Info i = Updater.fetchLatest();
+                long mine = Updater.installedCode(this);
+                ui.post(() -> {
+                    dlg.dismiss();
+                    if (i == null || i.code <= mine) {
+                        message("لديك آخر نسخة ✅\n\nالنسخة الحالية: v" + Updater.installedName(this));
+                    } else {
+                        offerUpdate(i);
+                    }
+                });
+            } catch (Exception e) {
+                ui.post(() -> { dlg.dismiss(); message("تعذر الاتصال بـ GitHub.\nتأكد من اتصال الشاشة بالإنترنت.\n\n" + e.getMessage()); });
+            }
+        }).start();
+    }
+
+    private void offerUpdate(Updater.Info i) {
+        String notes = i.notes == null || i.notes.trim().isEmpty() ? "" : "\n\nما الجديد:\n" + i.notes.trim();
+        new AlertDialog.Builder(this)
+                .setTitle("نسخة جديدة متوفرة")
+                .setMessage("النسخة الحالية: v" + Updater.installedName(this)
+                        + "\nالنسخة الجديدة: " + i.tag + notes)
+                .setPositiveButton("تحديث الآن", (d, w) -> install(i))
+                .setNegativeButton("لاحقاً", null)
+                .show();
+    }
+
+    private void install(Updater.Info i) {
+        TextView status = Ui.text(this, "جاري التحميل… 0%", 18, Ui.TEXT, false);
+        status.setPadding(Ui.dp(this, 24), Ui.dp(this, 20), Ui.dp(this, 24), Ui.dp(this, 20));
+        AlertDialog dlg = new AlertDialog.Builder(this).setView(status).setCancelable(false).show();
+        new Thread(() -> {
+            try {
+                final int[] last = {-1};
+                Updater.downloadAndInstall(this, i, (done, total) -> {
+                    int pct = total > 0 ? (int) (done * 100 / total) : -1;
+                    if (pct != last[0]) {
+                        last[0] = pct;
+                        ui.post(() -> status.setText(pct >= 0 ? "جاري التحميل… " + pct + "%"
+                                : "جاري التحميل… " + (done / 1024) + " KB"));
+                    }
+                });
+                ui.post(() -> {
+                    dlg.dismiss();
+                    updateBtn.setText("⟳  تحديث");
+                    updateBtn.setTextColor(Ui.MUTED);
+                });
+            } catch (Exception e) {
+                ui.post(() -> { dlg.dismiss(); message("فشل التحميل:\n" + e.getMessage()); });
+            }
+        }).start();
+    }
+
+    private void message(String m) {
+        new AlertDialog.Builder(this).setMessage(m).setPositiveButton("حسناً", null).show();
     }
 
     @Override protected void onResume() {
