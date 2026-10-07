@@ -248,6 +248,7 @@ public class MainActivity extends Activity {
 
         LinearLayout gauges = Ui.row(this);
         gauges.setGravity(Gravity.CENTER);
+        gauges.setBaselineAligned(false);
         gBattery = new RingGauge(this, "البطارية", Ui.EV);
         gFuel = new RingGauge(this, "الوقود", Ui.ENG);
         gFuel.setLowWarning(15);
@@ -278,12 +279,15 @@ public class MainActivity extends Activity {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
-        int size = Ui.dp(this, 190);
+        int size = Ui.dp(this, 230);
         col.addView(g, new LinearLayout.LayoutParams(size, size));
         under.setGravity(Gravity.CENTER);
         col.addView(under);
         return col;
     }
+
+    /** يعزل رقماً بوحدته (مثل "90 km") داخل نص عربي حتى لا ينقلب ترتيبه. */
+    private static String ltr(String s) { return "\u2066" + s + "\u2069"; }
 
     private TextView chip(String s, int color) {
         TextView t = Ui.text(this, s, 18, 0xFFFFFFFF, true);
@@ -301,7 +305,7 @@ public class MainActivity extends Activity {
         list.setOrientation(LinearLayout.VERTICAL);
 
         if (!trips.isEmpty()) {
-            list.addView(Ui.text(this, "إحصائياتك", 20, Ui.TEXT, true));
+            list.addView(Ui.text(this, "إحصائياتك  ·  عدد الرحلات " + trips.size(), 20, Ui.TEXT, true));
             list.addView(statsRow(trips));
         }
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
@@ -345,8 +349,8 @@ public class MainActivity extends Activity {
             litres += s.totalFuelL();
         }
         LinearLayout r = Ui.row(this);
-        Ui.tile(r, trips.size() + " رحلات", Ui.TEXT).setText(Ui.num(km, 1) + " km");
-        Ui.tile(r, "على الكهرباء", Ui.EV).setText(km > 0.01 ? Ui.num(evKm / km * 100, 0) + " %" : "—");
+        Ui.tile(r, "إجمالي المسافة", Ui.TEXT).setText(Ui.num(km, 1) + " km");
+        Ui.tile(r, "على الكهرباء", Ui.EV).setText(km > 0.01 ? ltr(Ui.num(evKm / km * 100, 0) + "%") : "—");
         Ui.tile(r, "كهرباء مصروفة", Ui.EV).setText(Ui.num(kwh, 1) + " kWh");
         Ui.tile(r, "بنزين مصروف", Ui.ENG).setText(Ui.num(litres, 2) + " L");
         return r;
@@ -356,9 +360,10 @@ public class MainActivity extends Activity {
         LinearLayout c = Ui.card(this);
         LinearLayout top = Ui.row(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.addView(Ui.text(this, Ui.num(s.totalDistKm(), 1) + " km", 26, Ui.TEXT, true),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        top.addView(Ui.text(this, Ui.time(s.startWall) + "  →  " + Ui.time(s.endWall), 17, Ui.MUTED, false));
+        TextView km = Ui.text(this, ltr(Ui.num(s.totalDistKm(), 1) + " km"), 26, Ui.TEXT, true);
+        km.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+        top.addView(km, new LinearLayout.LayoutParams(0, -2, 1f));
+        top.addView(Ui.text(this, ltr(Ui.time(s.startWall) + "  →  " + Ui.time(s.endWall)), 17, Ui.MUTED, false));
         c.addView(top);
 
         // شريط الكهرباء مقابل المحرك
@@ -378,7 +383,7 @@ public class MainActivity extends Activity {
         blp.bottomMargin = Ui.dp(this, 10);
         c.addView(bar, blp);
 
-        c.addView(Ui.text(this, String.format(Locale.US, "⚡ %s%%  ·  %s kWh     ⛽ %s L     ⏱ %s",
+        c.addView(Ui.text(this, String.format(Locale.US, "\u2066⚡ %s%%  ·  %s kWh     ⛽ %s L     ⏱ %s\u2069",
                 Ui.num(s.evShare(), 0), Ui.num(s.totalKwhOut(), 2), Ui.num(s.totalFuelL(), 2),
                 Ui.dur(s.totalDurMs())), 15, Ui.MUTED, false));
 
@@ -419,8 +424,8 @@ public class MainActivity extends Activity {
         pKind.setBackground(Ui.round(l.engineOn ? Ui.ENG : Ui.EV, Ui.dp(this, 10)));
         gBattery.setValue(l.socPct);
         gFuel.setValue(l.fuelPct);
-        pEvRange.setText(l.evRangeKm == null ? " " : "مدى كهربائي ~" + Math.round(l.evRangeKm) + " km");
-        pRange.setText(l.rangeKm == null ? " " : "المدى ~" + Math.round(l.rangeKm) + " km");
+        pEvRange.setText(l.evRangeKm == null ? " " : "مدى كهربائي  " + ltr("~" + Math.round(l.evRangeKm) + " km"));
+        pRange.setText(l.rangeKm == null ? " " : "المدى  " + ltr("~" + Math.round(l.rangeKm) + " km"));
         pStatus.setText("الاتصال: " + l.source);
     }
 
