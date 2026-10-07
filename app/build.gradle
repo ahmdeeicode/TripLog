@@ -1,0 +1,26 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.triplog'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.example.triplog'
+        minSdk 28
+        targetSdk 33          // مثل تطبيقات الشاشة: يتجنب قيود Android 14 على الخدمات الأمامية
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release { minifyEnabled false }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+// لا توجد أي مكتبات خارجية: كل الوصول للسيارة بالـ reflection

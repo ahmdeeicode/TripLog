@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- تُستخدم فقط في المسار الاحتياطي (CarPropertyManager القياسي) -->
+    <uses-permission android:name="android.car.permission.CAR_SPEED"/>
+    <uses-permission android:name="android.car.permission.CAR_ENERGY"/>
+    <uses-permission android:name="android.car.permission.CAR_MILEAGE"/>
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN"/>
+    <uses-permission android:name="android.car.permission.CAR_INFO"/>
+    <uses-permission android:name="android.car.permission.CAR_EXTERIOR_ENVIRONMENT"/>
+
+    <application
+        android:label="سجل الرحلات"
+        android:icon="@android:drawable/ic_menu_mylocation"
+        android:theme="@android:style/Theme.DeviceDefault"
+        android:supportsRtl="true">
+
+        <!-- نفس أسلوب Unlokit: مكتبة السيارة القياسية اختيارية، و Autolink تُحمَّل بالـ reflection -->
+        <uses-library android:name="android.car" android:required="false"/>
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <service android:name=".TripService" android:exported="false"/>
+
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
