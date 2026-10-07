@@ -1,5 +1,7 @@
 name: Build APK
 on: [push, workflow_dispatch]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,8 +11,20 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.7' }
-      - run: gradle assembleDebug
+      - name: Signing key
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then echo "::error::SIGNING_KEY secret is missing"; exit 1; fi
+          echo "$SIGNING_KEY" | base64 -d > app/release.jks
+      - run: gradle assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk MyTrip.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: TripLog-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MyTrip-apk
+          path: MyTrip.apk
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: gh release create "build-${{ github.run_number }}" MyTrip.apk --title "MyTrip build ${{ github.run_number }}" --notes "$NOTES" --latest
