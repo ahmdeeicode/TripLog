@@ -51,6 +51,11 @@ public final class SessionStore {
         return f;
     }
 
+    /** حذف رحلة من السجل (فقط ملفات مجلد السجل). */
+    public synchronized void delete(File f) {
+        if (f != null && historyDir.equals(f.getParentFile())) f.delete();
+    }
+
     /** الأحدث أولاً. */
     public synchronized List<File> history() {
         File[] fs = historyDir.listFiles((d, n) -> n.startsWith("trip_") && n.endsWith(".json"));

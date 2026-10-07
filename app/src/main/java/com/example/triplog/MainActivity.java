@@ -247,6 +247,8 @@ public class MainActivity extends Activity {
         LinearLayout right = new LinearLayout(this);
         right.setOrientation(LinearLayout.VERTICAL);
         right.addView(Ui.text(this, "الرحلات السابقة", 20, Ui.TEXT, true));
+        if (!store.history().isEmpty())
+            right.addView(Ui.text(this, "اضغط مطولاً على رحلة لحذفها", 13, Ui.MUTED, false));
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         List<File> files = store.history();
@@ -267,6 +269,7 @@ public class MainActivity extends Activity {
                     Ui.num(s.totalDistKm(), 1), Ui.dur(s.totalDurMs()), Ui.num(s.evShare(), 0),
                     Ui.num(s.totalFuelL(), 2), Ui.num(s.totalKwhOut(), 2)), 15, Ui.MUTED, false));
             c.setOnClickListener(v -> openReport(f));
+            c.setOnLongClickListener(v -> { confirmDelete(f, s); return true; });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.topMargin = Ui.dp(this, 10);
             list.addView(c, lp);
@@ -490,6 +493,16 @@ public class MainActivity extends Activity {
             case TripSession.NORMAL: return 0xFF37474F;
             default: return 0xFF5D4037;
         }
+    }
+
+    private void confirmDelete(File f, TripSession s) {
+        new AlertDialog.Builder(this)
+                .setTitle("حذف هذه الرحلة؟")
+                .setMessage(Ui.date(s.startWall) + "  →  " + Ui.time(s.endWall) + "\n"
+                        + Ui.num(s.totalDistKm(), 1) + " كم\n\nلا يمكن التراجع عن الحذف.")
+                .setPositiveButton("حذف", (d, w) -> { store.delete(f); render(); })
+                .setNegativeButton("إلغاء", null)
+                .show();
     }
 
     private void confirmEnd() {
