@@ -2,9 +2,17 @@ name: Build APK
 on: [push, workflow_dispatch]
 permissions:
   contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -28,3 +36,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ github.event.head_commit.message }}
         run: gh release create "build-${{ github.run_number }}" MyTrip.apk --title "MyTrip build ${{ github.run_number }}" --notes "$NOTES" --latest
+      # صفحة التثبيت (GitHub Pages): الصفحة + آخر APK + latest.json بالبصمة، من نفس المصدر فلا مشكلة CORS
+      - name: Build install page
+        run: |
+          cp MyTrip.apk site/MyTrip.apk
+          SHA=$(sha256sum MyTrip.apk | cut -d' ' -f1)
+          SIZE=$(stat -c %s MyTrip.apk)
+          printf '{"version_name":"2.2.%s","version_code":%s,"size":%s,"sha256":"%s","url":"MyTrip.apk"}\n' \
+            "${{ github.run_number }}" "$((100 + ${{ github.run_number }}))" "$SIZE" "$SHA" > site/latest.json
+          cat site/latest.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: pages
+        uses: actions/deploy-pages@v4

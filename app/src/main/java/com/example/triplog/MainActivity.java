@@ -5,8 +5,6 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.provider.Settings;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -110,26 +108,18 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    static final String INSTALL_PAGE = "ahmdeeicode.github.io/TripLog";
+
     private void onUpdateClicked() {
         if (tripActive()) {
             message("أنهِ الرحلة الجارية أولاً، ثم حدّث التطبيق.");
             return;
         }
         if (!getPackageManager().canRequestPackageInstalls()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("خطوة لمرة واحدة")
-                    .setMessage("لكي يحدّث التطبيق نفسه، اسمح له بتثبيت التطبيقات.\n\n"
-                            + "اضغط \"فتح الإعدادات\"، ثم فعّل خيار السماح، وارجع واضغط تحديث مرة أخرى.")
-                    .setPositiveButton("فتح الإعدادات", (d, w) -> {
-                        try {
-                            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                    Uri.parse("package:" + getPackageName())));
-                        } catch (Exception e) {
-                            message("لم أستطع فتح الإعدادات تلقائياً. افتحها يدوياً: التطبيقات ← رحلتي ← تثبيت تطبيقات غير معروفة.");
-                        }
-                    })
-                    .setNegativeButton("إلغاء", null)
-                    .show();
+            // شاشة السيارة لا تعرض إعداد "تثبيت تطبيقات غير معروفة"، فالصلاحية تُمنح من صفحة التثبيت عبر ADB
+            message("لكي يحدّث التطبيق نفسه يحتاج صلاحية تثبيت التطبيقات، وشاشة السيارة لا تعرض هذا الخيار في الإعدادات.\n\n"
+                    + "ثبّت التطبيق مرة واحدة من صفحة التثبيت بالكمبيوتر (تمنحه الصلاحية تلقائياً):\n"
+                    + INSTALL_PAGE + "\n\nبعدها يعمل زر «تحديث» دائماً بدون كمبيوتر.");
             return;
         }
         TextView status = Ui.text(this, "جاري البحث عن تحديث…", 18, Ui.TEXT, false);
