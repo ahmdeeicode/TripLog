@@ -50,6 +50,9 @@ public final class TripSession {
     public float odoStart = Float.NaN, odoEnd = Float.NaN;
     public final Cell[][] cells = new Cell[4][2];
 
+    /** ملف الرحلة في السجل (لا يُحفظ، يُضبط عند القراءة). */
+    public transient java.io.File file;
+
     private long lastAdvance = -1;   // elapsedRealtime، لا يُحفظ
     private float minFuelPct = Float.NaN;
 

@@ -11,6 +11,8 @@ public final class Live {
     public volatile Float fuelLitres;
     public volatile Float odometerKm;
     public volatile Integer gear;
+    public volatile Float evRangeKm;     // المدى الكهربائي (VCU_CLTC_RANGEAVAL)
+    public volatile Float rangeKm;       // المدى في شاشة العدادات (MCU_PERIOD_TCDTE)
 
     public volatile boolean engineOn;
     public volatile float fuelFlowLph = Float.NaN;

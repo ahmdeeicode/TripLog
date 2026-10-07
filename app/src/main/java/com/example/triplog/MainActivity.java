@@ -20,7 +20,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -50,7 +53,8 @@ public class MainActivity extends Activity {
     private final TextView[][] vVals = new TextView[4][2];
     private final LinearLayout[][] vRows = new LinearLayout[4][2];
     // عناصر شاشة البداية
-    private TextView pStatus;
+    private TextView pStatus, pMode, pKind, pEvRange, pRange;
+    private RingGauge gBattery, gFuel;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -215,68 +219,209 @@ public class MainActivity extends Activity {
     };
 
     // ======================= شاشة البداية =======================
+    // التخطيط من اليمين لليسار: أول عنصر يُضاف يظهر يميناً. الرحلات يميناً، وSTART يساراً جهة السائق.
     private View buildIdle() {
         LinearLayout wrap = Ui.row(this);
+        List<TripSession> trips = loadTrips();
 
-        LinearLayout left = Ui.card(this);
-        left.setGravity(Gravity.CENTER);
-        left.addView(Ui.text(this, "ابدأ رحلة جديدة", 26, Ui.TEXT, true));
-        TextView hint = Ui.text(this, "سيتم تقسيم الرحلة حسب نمط القيادة\nوحسب الكهرباء أو المحرك", 16, Ui.MUTED, false);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 24));
-        left.addView(hint);
-        left.addView(Ui.button(this, "▶   START", Ui.GOOD, v -> startTrip()));
-        pStatus = Ui.text(this, "…", 15, Ui.MUTED, false);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -1, 1.25f);
+        rlp.setMarginStart(Ui.dp(this, 16));
+        wrap.addView(buildTripsPanel(trips), rlp);
+        wrap.addView(buildStartPanel(), new LinearLayout.LayoutParams(0, -1, 1f));
+        return wrap;
+    }
+
+    /** لوحة START: حالة السيارة الآن (النمط، البطارية، الوقود، المدى) وزر البدء. */
+    private View buildStartPanel() {
+        LinearLayout p = Ui.card(this);
+        p.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        LinearLayout chips = Ui.row(this);
+        chips.setGravity(Gravity.CENTER);
+        pMode = chip("—", Ui.GOOD);
+        pKind = chip("—", Ui.EV);
+        chips.addView(pMode);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+        clp.setMarginStart(Ui.dp(this, 10));
+        chips.addView(pKind, clp);
+        p.addView(chips);
+
+        LinearLayout gauges = Ui.row(this);
+        gauges.setGravity(Gravity.CENTER);
+        gBattery = new RingGauge(this, "البطارية", Ui.EV);
+        gFuel = new RingGauge(this, "الوقود", Ui.ENG);
+        gFuel.setLowWarning(15);
+        pEvRange = Ui.text(this, " ", 16, Ui.MUTED, false);
+        pRange = Ui.text(this, " ", 16, Ui.MUTED, false);
+        gauges.addView(gaugeColumn(gBattery, pEvRange), new LinearLayout.LayoutParams(0, -2, 1f));
+        gauges.addView(gaugeColumn(gFuel, pRange), new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        glp.topMargin = Ui.dp(this, 12);
+        p.addView(gauges, glp);
+
+        TextView start = Ui.button(this, "▶   START", Ui.GOOD, v -> startTrip());
+        start.setTextSize(28);
+        int pad = Ui.dp(this, 24);
+        start.setPadding(pad, pad, pad, pad);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.topMargin = Ui.dp(this, 16);
+        p.addView(start, slp);
+
+        pStatus = Ui.text(this, "…", 13, Ui.MUTED, false);
         pStatus.setGravity(Gravity.CENTER);
-        pStatus.setPadding(0, Ui.dp(this, 24), 0, 0);
-        left.addView(pStatus);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, -1, 1f);
-        llp.setMarginEnd(Ui.dp(this, 16));
-        wrap.addView(left, llp);
+        pStatus.setPadding(0, Ui.dp(this, 12), 0, 0);
+        p.addView(pStatus);
+        return p;
+    }
 
+    private View gaugeColumn(RingGauge g, TextView under) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        int size = Ui.dp(this, 190);
+        col.addView(g, new LinearLayout.LayoutParams(size, size));
+        under.setGravity(Gravity.CENTER);
+        col.addView(under);
+        return col;
+    }
+
+    private TextView chip(String s, int color) {
+        TextView t = Ui.text(this, s, 18, 0xFFFFFFFF, true);
+        t.setBackground(Ui.round(color, Ui.dp(this, 10)));
+        int h = Ui.dp(this, 14), v = Ui.dp(this, 6);
+        t.setPadding(h, v, h, v);
+        return t;
+    }
+
+    /** لوحة الرحلات: ملخص كل الرحلات، ثم الرحلات مجمّعة حسب اليوم. */
+    private View buildTripsPanel(List<TripSession> trips) {
         LinearLayout right = new LinearLayout(this);
         right.setOrientation(LinearLayout.VERTICAL);
-        right.addView(Ui.text(this, "الرحلات السابقة", 20, Ui.TEXT, true));
-        if (!store.history().isEmpty())
-            right.addView(Ui.text(this, "اضغط مطولاً على رحلة لحذفها", 13, Ui.MUTED, false));
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        List<File> files = store.history();
-        if (files.isEmpty()) {
-            TextView e = Ui.text(this, "لا توجد رحلات بعد", 16, Ui.MUTED, false);
+
+        if (!trips.isEmpty()) {
+            list.addView(Ui.text(this, "إحصائياتك", 20, Ui.TEXT, true));
+            list.addView(statsRow(trips));
+        }
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+        hlp.topMargin = Ui.dp(this, trips.isEmpty() ? 0 : 18);
+        list.addView(Ui.text(this, "الرحلات السابقة", 20, Ui.TEXT, true), hlp);
+        if (trips.isEmpty()) {
+            TextView e = Ui.text(this, "لا توجد رحلات بعد. اضغط START لتبدأ أول رحلة.", 16, Ui.MUTED, false);
             e.setPadding(0, Ui.dp(this, 12), 0, 0);
             list.addView(e);
+        } else {
+            list.addView(Ui.text(this, "اضغط على رحلة لعرض تقريرها، ومطولاً لحذفها", 13, Ui.MUTED, false));
         }
+
+        String lastDay = null;
         int n = 0;
-        for (File f : files) {
+        for (TripSession s : trips) {
             if (++n > 50) break;
-            TripSession s = SessionStore.read(f);
-            if (s == null) continue;
-            LinearLayout c = Ui.card(this);
-            c.addView(Ui.text(this, Ui.date(s.startWall) + "  →  " + Ui.time(s.endWall), 17, Ui.TEXT, true));
-            c.addView(Ui.text(this, String.format(Locale.US,
-                    "%s كم  ·  %s  ·  كهرباء %s%%  ·  %s لتر  ·  %s kWh",
-                    Ui.num(s.totalDistKm(), 1), Ui.dur(s.totalDurMs()), Ui.num(s.evShare(), 0),
-                    Ui.num(s.totalFuelL(), 2), Ui.num(s.totalKwhOut(), 2)), 15, Ui.MUTED, false));
-            c.setOnClickListener(v -> openReport(f));
-            c.setOnLongClickListener(v -> { confirmDelete(f, s); return true; });
+            String day = dayLabel(s.startWall);
+            if (!day.equals(lastDay)) {
+                lastDay = day;
+                TextView d = Ui.text(this, day, 15, Ui.MUTED, true);
+                d.setPadding(0, Ui.dp(this, 14), 0, 0);
+                list.addView(d);
+            }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.topMargin = Ui.dp(this, 10);
-            list.addView(c, lp);
+            lp.topMargin = Ui.dp(this, 8);
+            list.addView(tripCard(s), lp);
         }
         ScrollView sv = new ScrollView(this);
         sv.addView(list);
         right.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
-        wrap.addView(right, new LinearLayout.LayoutParams(0, -1, 1.3f));
-        return wrap;
+        return right;
+    }
+
+    private View statsRow(List<TripSession> trips) {
+        double km = 0, evKm = 0, kwh = 0, litres = 0;
+        for (TripSession s : trips) {
+            km += s.totalDistKm();
+            evKm += s.total(TripSession.EV).distKm;
+            kwh += s.totalKwhOut();
+            litres += s.totalFuelL();
+        }
+        LinearLayout r = Ui.row(this);
+        Ui.tile(r, trips.size() + " رحلات", Ui.TEXT).setText(Ui.num(km, 1) + " km");
+        Ui.tile(r, "على الكهرباء", Ui.EV).setText(km > 0.01 ? Ui.num(evKm / km * 100, 0) + " %" : "—");
+        Ui.tile(r, "كهرباء مصروفة", Ui.EV).setText(Ui.num(kwh, 1) + " kWh");
+        Ui.tile(r, "بنزين مصروف", Ui.ENG).setText(Ui.num(litres, 2) + " L");
+        return r;
+    }
+
+    private View tripCard(TripSession s) {
+        LinearLayout c = Ui.card(this);
+        LinearLayout top = Ui.row(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(Ui.text(this, Ui.num(s.totalDistKm(), 1) + " km", 26, Ui.TEXT, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        top.addView(Ui.text(this, Ui.time(s.startWall) + "  →  " + Ui.time(s.endWall), 17, Ui.MUTED, false));
+        c.addView(top);
+
+        // شريط الكهرباء مقابل المحرك
+        double ev = s.total(TripSession.EV).distKm, all = s.totalDistKm();
+        float evW = all > 0.001 ? (float) (ev / all) : 0f;
+        LinearLayout bar = Ui.row(this);
+        bar.setBackground(Ui.round(Ui.CARD2, Ui.dp(this, 5)));
+        bar.setClipToOutline(true);
+        View evPart = new View(this);
+        evPart.setBackgroundColor(Ui.EV);
+        View engPart = new View(this);
+        engPart.setBackgroundColor(all > 0.001 ? Ui.ENG : Ui.CARD2);
+        bar.addView(evPart, new LinearLayout.LayoutParams(0, -1, evW));
+        bar.addView(engPart, new LinearLayout.LayoutParams(0, -1, 1f - evW));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, Ui.dp(this, 10));
+        blp.topMargin = Ui.dp(this, 10);
+        blp.bottomMargin = Ui.dp(this, 10);
+        c.addView(bar, blp);
+
+        c.addView(Ui.text(this, String.format(Locale.US, "⚡ %s%%  ·  %s kWh     ⛽ %s L     ⏱ %s",
+                Ui.num(s.evShare(), 0), Ui.num(s.totalKwhOut(), 2), Ui.num(s.totalFuelL(), 2),
+                Ui.dur(s.totalDurMs())), 15, Ui.MUTED, false));
+
+        File f = s.file;
+        c.setOnClickListener(v -> openReport(f));
+        c.setOnLongClickListener(v -> { confirmDelete(f, s); return true; });
+        return c;
+    }
+
+    private List<TripSession> loadTrips() {
+        List<TripSession> out = new ArrayList<>();
+        for (File f : store.history()) {
+            TripSession s = SessionStore.read(f);
+            if (s == null) continue;
+            s.file = f;
+            out.add(s);
+        }
+        return out;
+    }
+
+    private static String dayLabel(long wall) {
+        Calendar t = Calendar.getInstance();
+        Calendar d = Calendar.getInstance();
+        d.setTimeInMillis(wall);
+        if (t.get(Calendar.YEAR) == d.get(Calendar.YEAR)) {
+            int diff = t.get(Calendar.DAY_OF_YEAR) - d.get(Calendar.DAY_OF_YEAR);
+            if (diff == 0) return "اليوم";
+            if (diff == 1) return "أمس";
+        }
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(wall));
     }
 
     private void updateIdle() {
         if (pStatus == null || preview == null) return;
         Live l = preview.live;
-        pStatus.setText(String.format(Locale.US, "الاتصال: %s\nالنمط %s  ·  %s  ·  بطارية %s  ·  وقود %s",
-                l.source, Live.modeName(l.driveMode), l.engineOn ? "محرك" : "كهرباء",
-                Ui.pct(l.socPct), Ui.pct(l.fuelPct)));
+        pMode.setText(Live.modeName(l.driveMode));
+        pKind.setText(l.engineOn ? "⛽ محرك" : "⚡ كهرباء");
+        pKind.setBackground(Ui.round(l.engineOn ? Ui.ENG : Ui.EV, Ui.dp(this, 10)));
+        gBattery.setValue(l.socPct);
+        gFuel.setValue(l.fuelPct);
+        pEvRange.setText(l.evRangeKm == null ? " " : "مدى كهربائي ~" + Math.round(l.evRangeKm) + " km");
+        pRange.setText(l.rangeKm == null ? " " : "المدى ~" + Math.round(l.rangeKm) + " km");
+        pStatus.setText("الاتصال: " + l.source);
     }
 
     private void startPreview() {
@@ -546,7 +691,9 @@ public class MainActivity extends Activity {
               .append("البطارية %: ").append(l.socPct).append('\n')
               .append("الوقود %: ").append(l.fuelPct).append("  لتر: ").append(l.fuelLitres).append('\n')
               .append("العداد كم: ").append(l.odometerKm).append('\n')
-              .append("القير: ").append(l.gear).append('\n');
+              .append("القير: ").append(l.gear).append('\n')
+              .append("المدى الكهربائي كم: ").append(l.evRangeKm).append('\n')
+              .append("مدى العدادات كم: ").append(l.rangeKm).append('\n');
         }
         boolean neg = prefs.getBoolean(PREF_NEG_IS_IN, true);
         sb.append("\nاتجاه قدرة البطارية: ").append(neg ? "السالب = شحن (افتراضي)" : "الموجب = شحن (معكوس)")

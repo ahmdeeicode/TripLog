@@ -308,6 +308,9 @@ public final class CarBridge {
         if (odo == null) odo = range(vf(PERF_ODOMETER), 0.1f, 2_000_000);
         live.odometerKm = odo;
 
+        live.evRangeKm = range(al("getVCU_CLTC_RANGEAVAL"), 0, 2000);
+        live.rangeKm = clusterRangeKm();
+
         Float g = al("getVCU_1_G_PRNDGEARACT");
         live.gear = g == null ? null : g.intValue();
     }
@@ -339,6 +342,20 @@ public final class CarBridge {
         if (alive == null || alive <= 0) return null;
         Integer f = clusterInt("FUEL_PERCENT");
         return f == null ? null : range(f.floatValue(), 0, 100);
+    }
+
+    /** المدى الذي تعرضه شاشة العدادات: أول قيمة في قناة MCU_PERIOD_TCDTE (بنفس شرط الاتصال). */
+    private Float clusterRangeKm() {
+        Integer alive = clusterInt("DTE_VALUE");
+        if (alive == null || alive <= 0) return null;
+        Object c = cluster;
+        try {
+            Object v = c.getClass().getMethod("getIntegerListData", String.class).invoke(c, "MCU_PERIOD_TCDTE");
+            int[] a = v instanceof int[] ? (int[]) v : null;
+            return a == null || a.length == 0 ? null : range((float) a[0], 1, 3000);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private Integer clusterInt(String channel) {
