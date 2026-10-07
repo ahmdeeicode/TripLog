@@ -37,10 +37,14 @@ public final class SessionStore {
         try { write(active, s.toJson().toString()); } catch (Exception e) { Log.e("Store", "saveActive", e); }
     }
 
-    /** ينهي الرحلة ويحفظها في السجل، ويعيد الملف. */
+    /** أقل مسافة لحفظ الرحلة في السجل (الضغط على Start ثم End بدون قيادة). */
+    public static final double MIN_SAVE_KM = 0.1;
+
+    /** ينهي الرحلة ويحفظها في السجل، ويعيد الملف. يعيد null إذا كانت أقصر من MIN_SAVE_KM فلا تُحفظ. */
     public synchronized File finish(TripSession s) {
         s.active = false;
         s.endWall = System.currentTimeMillis();
+        if (s.totalDistKm() < MIN_SAVE_KM) { active.delete(); return null; }
         File f = new File(historyDir, "trip_" + s.startWall + ".json");
         try { write(f, s.toJson().toString(2)); } catch (Exception e) { Log.e("Store", "finish", e); }
         active.delete();

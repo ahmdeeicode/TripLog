@@ -19,6 +19,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -502,14 +503,17 @@ public class MainActivity extends Activity {
 
     private void endTrip() {
         File f;
+        boolean had;
         TripService svc = TripService.instance;
-        if (svc != null) f = svc.endTrip();
+        if (svc != null) { had = true; f = svc.endTrip(); }
         else {
             TripSession s = store.loadActive();
+            had = s != null;
             f = s == null ? null : store.finish(s);
         }
         render();
         if (f != null) openReport(f);
+        else if (had) Toast.makeText(this, "الرحلة أقصر من 0.1 كم، لم تُحفظ", Toast.LENGTH_LONG).show();
     }
 
     private void openReport(File f) {

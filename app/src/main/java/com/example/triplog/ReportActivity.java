@@ -84,9 +84,11 @@ public class ReportActivity extends Activity {
         Ui.tile(r, "Duration", Ui.TEXT).setText(Ui.dur(s.totalDurMs()));
         Ui.tile(r, "EV share", Ui.EV).setText(Ui.num(s.evShare(), 0) + " %");
         Ui.tile(r, "Fuel used", Ui.ENG).setText(Ui.num(s.totalFuelL(), 2) + " L");
-        Ui.tile(r, "L/100 km", Ui.ENG).setText(dist > 0.5 ? Ui.num(s.totalFuelL() / dist * 100, 1) : "—");
+        // المعدلات على مسافة كل نوع فقط: البنزين ÷ مسافة المحرك، وكهرباء القيادة ÷ مسافة الكهرباء
+        TripSession.Cell ev = s.total(TripSession.EV), eng = s.total(TripSession.ENG);
+        Ui.tile(r, "L/100 km", Ui.ENG).setText(eng.distKm > 0.5 ? Ui.num(eng.fuelL / eng.distKm * 100, 1) : "—");
         Ui.tile(r, "Battery used", Ui.EV).setText(Ui.num(s.totalKwhOut(), 2) + " kWh");
-        Ui.tile(r, "kWh/100 km", Ui.EV).setText(dist > 0.5 ? Ui.num(s.totalKwhOut() / dist * 100, 1) : "—");
+        Ui.tile(r, "kWh/100 km", Ui.EV).setText(ev.distKm > 0.5 ? Ui.num(ev.kwhOut / ev.distKm * 100, 1) : "—");
         return r;
     }
 
@@ -347,7 +349,8 @@ public class ReportActivity extends Activity {
 
     private String notes(TripSession s) {
         StringBuilder sb = new StringBuilder();
-        if (!Float.isNaN(s.odoStart) && !Float.isNaN(s.odoEnd)) {
+        // الرحلات القديمة سجّلت عداداً لا يتحرك (0.0)، فلا نعرض الفرق إلا إذا تحرك فعلاً
+        if (!Float.isNaN(s.odoStart) && !Float.isNaN(s.odoEnd) && s.odoEnd - s.odoStart > 0.05f) {
             sb.append(String.format(Locale.US, "حسب عداد السيارة: %.1f كم.  ", s.odoEnd - s.odoStart));
         }
         double engBattery = s.total(TripSession.ENG).kwhOut;

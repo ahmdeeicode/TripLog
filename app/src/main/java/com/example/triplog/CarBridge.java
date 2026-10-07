@@ -49,7 +49,10 @@ public final class CarBridge {
     private final FuelCounter fuel = new FuelCounter();
     private volatile Callback callback;
 
+    private Object alApi;                                // Autolink Api
     private Object al;                                   // Autolink CarManager
+    private Object cluster;                              // Autolink clusterinteraction (شاشة العدادات)
+    private Object chery;                                // Chery CarInfoControl
     private final Map<String, Method> cache = new HashMap<>();
     private Object listener;
     private Object propMgr;
@@ -62,22 +65,41 @@ public final class CarBridge {
     // ================= الاتصال =================
     public void connect(Context ctx) {
         long now = SystemClock.elapsedRealtime();
-        if (al != null && propMgr != null) return;
+        if (al != null && propMgr != null && cluster != null && chery != null) return;
         if (lastConnectTry != 0 && now - lastConnectTry < 10_000) return;
         lastConnectTry = now;
         Context app = ctx.getApplicationContext();
 
         if (al == null) {
             try {
-                Object api = Class.forName("com.autolink.manager.Api")
+                if (alApi == null) alApi = Class.forName("com.autolink.manager.Api")
                         .getMethod("createApi", Context.class).invoke(null, app);
-                if (api != null) al = api.getClass().getMethod("getManager", String.class).invoke(api, "car");
+                if (alApi != null) al = alApi.getClass().getMethod("getManager", String.class).invoke(alApi, "car");
                 if (al != null) {
                     Log.i(TAG, "Autolink CarManager connected");
                     registerRealtime();
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "Autolink unavailable: " + t);
+            }
+        }
+        // الوقود: VHAL لا يوفر FUEL_LEVEL في G700، فنقرؤه من شاشة العدادات (نفس ما يراه السائق)
+        if (cluster == null && alApi != null) {
+            try {
+                cluster = alApi.getClass().getMethod("getManager", String.class).invoke(alApi, "clusterinteraction");
+            } catch (Throwable t) {
+                Log.w(TAG, "Autolink cluster unavailable: " + t);
+            }
+        }
+        // العداد الحي: rangeavalDynamic بالمتر رغم اسمه (FLZCU_TOTALODOMETERBACKUP لا يتحرك أثناء القيادة)
+        if (chery == null) {
+            try {
+                Class<?> ctl = Class.forName("com.chery.platform.CarInfoControl");
+                Object c = ctl.getMethod("getInstance").invoke(null);
+                ctl.getMethod("init", Context.class).invoke(c, app);
+                chery = c;
+            } catch (Throwable t) {
+                Log.w(TAG, "Chery platform unavailable: " + t);
             }
         }
         if (propMgr == null) {
@@ -95,8 +117,11 @@ public final class CarBridge {
                 Log.w(TAG, "android.car unavailable: " + t);
             }
         }
-        live.source = al != null && propMgr != null ? "Autolink + VHAL"
+        String src = al != null && propMgr != null ? "Autolink + VHAL"
                 : al != null ? "Autolink" : propMgr != null ? "VHAL" : "غير متصل";
+        if (cluster != null) src += " + Cluster";
+        if (chery != null) src += " + Chery";
+        live.source = src;
     }
 
     private void registerRealtime() {
@@ -267,15 +292,19 @@ public final class CarBridge {
         }
         live.socPct = soc;
 
-        // الوقود (VHAL)
+        // الوقود: من شاشة العدادات أولاً، ثم VHAL احتياطاً
+        Float fuelPct = clusterFuelPct();
         if (fuelCapMl == null) fuelCapMl = vf(INFO_FUEL_CAPACITY);
         Float fuelMl = vf(FUEL_LEVEL);
         if (fuelMl != null && fuelCapMl != null && fuelCapMl > 0) {
-            live.fuelPct = range(fuelMl / fuelCapMl * 100f, 0, 100);
+            if (fuelPct == null) fuelPct = range(fuelMl / fuelCapMl * 100f, 0, 100);
             live.fuelLitres = fuelMl / 1000f;
         }
+        live.fuelPct = fuelPct;
 
-        Float odo = range(al("getFLZCU_TOTALODOMETERBACKUP"), 0.1f, 2_000_000);
+        Float odoM = cheryF("rangeavalDynamic");
+        Float odo = odoM == null ? null : range(odoM / 1000f, 0.1f, 2_000_000);
+        if (odo == null) odo = range(al("getFLZCU_TOTALODOMETERBACKUP"), 0.1f, 2_000_000);
         if (odo == null) odo = range(vf(PERF_ODOMETER), 0.1f, 2_000_000);
         live.odometerKm = odo;
 
@@ -298,6 +327,36 @@ public final class CarBridge {
         if (m == null) return null;
         try {
             Object v = m.invoke(car);
+            return v instanceof Number ? ((Number) v).floatValue() : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** خدمة العدادات تعيد 0 لكل شيء قبل اتصالها، فلا نثق بالقيمة إلا إذا كان DTE_VALUE (لا يكون صفراً) يجيب. */
+    private Float clusterFuelPct() {
+        Integer alive = clusterInt("DTE_VALUE");
+        if (alive == null || alive <= 0) return null;
+        Integer f = clusterInt("FUEL_PERCENT");
+        return f == null ? null : range(f.floatValue(), 0, 100);
+    }
+
+    private Integer clusterInt(String channel) {
+        Object c = cluster;
+        if (c == null) return null;
+        try {
+            Object v = c.getClass().getMethod("getIntegerData", String.class).invoke(c, channel);
+            return v instanceof Integer ? (Integer) v : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private Float cheryF(String name) {
+        Object c = chery;
+        if (c == null) return null;
+        try {
+            Object v = c.getClass().getMethod(name).invoke(c);
             return v instanceof Number ? ((Number) v).floatValue() : null;
         } catch (Throwable t) {
             return null;
