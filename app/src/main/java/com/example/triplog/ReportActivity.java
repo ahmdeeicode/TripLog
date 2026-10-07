@@ -82,13 +82,15 @@ public class ReportActivity extends Activity {
         double dist = s.totalDistKm();
         Ui.tile(r, "Total distance", Ui.TEXT).setText(Ui.num(dist, 1) + " km");
         Ui.tile(r, "Duration", Ui.TEXT).setText(Ui.dur(s.totalDurMs()));
-        Ui.tile(r, "EV share", Ui.EV).setText(Ui.num(s.evShare(), 0) + " %");
-        Ui.tile(r, "Fuel used", Ui.ENG).setText(Ui.num(s.totalFuelL(), 2) + " L");
-        // المعدلات على مسافة كل نوع فقط: البنزين ÷ مسافة المحرك، وكهرباء القيادة ÷ مسافة الكهرباء
+        // كل مجموعة تبدأ بمسافتها، والمعدلات على مسافة كل نوع فقط:
+        // كهرباء القيادة ÷ مسافة الكهرباء، والبنزين ÷ مسافة المحرك
         TripSession.Cell ev = s.total(TripSession.EV), eng = s.total(TripSession.ENG);
-        Ui.tile(r, "L/100 km", Ui.ENG).setText(eng.distKm > 0.5 ? Ui.num(eng.fuelL / eng.distKm * 100, 1) : "—");
+        Ui.tile(r, "EV distance", Ui.EV).setText(Ui.num(ev.distKm, 1) + " km");
         Ui.tile(r, "Battery used", Ui.EV).setText(Ui.num(s.totalKwhOut(), 2) + " kWh");
         Ui.tile(r, "kWh/100 km", Ui.EV).setText(ev.distKm > 0.5 ? Ui.num(ev.kwhOut / ev.distKm * 100, 1) : "—");
+        Ui.tile(r, "Engine distance", Ui.ENG).setText(Ui.num(eng.distKm, 1) + " km");
+        Ui.tile(r, "Fuel used", Ui.ENG).setText(Ui.num(s.totalFuelL(), 2) + " L");
+        Ui.tile(r, "L/100 km", Ui.ENG).setText(eng.distKm > 0.5 ? Ui.num(eng.fuelL / eng.distKm * 100, 1) : "—");
         return r;
     }
 
