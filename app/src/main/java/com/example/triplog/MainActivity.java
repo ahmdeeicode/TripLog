@@ -43,9 +43,13 @@ public class MainActivity extends Activity {
     private HandlerThread previewThread;
     private Handler previewHandler;
 
-    // عناصر شاشة الرحلة الجارية
-    private TextView vMode, vSource, vSpeed, vFuelFlow, vPower, vSoc, vFuel,
-            vStart, vElapsed, vDist, vEvShare, vFuelUsed, vKwhOut, vKwhIn;
+    // عناصر شاشة الرحلة الجارية (لوحة حية)
+    private TextView vMode, vSource, vElapsed, vStart, vTotal, vSpeed, vPower, vFuelFlow, vLevels;
+    private TextView vEvTotal, vEngTotal;
+    private DonutView vDonut;
+    private final BarView[][] vBars = new BarView[4][2];
+    private final TextView[][] vVals = new TextView[4][2];
+    private final LinearLayout[][] vRows = new LinearLayout[4][2];
     // عناصر شاشة البداية
     private TextView pStatus;
 
@@ -315,45 +319,114 @@ public class MainActivity extends Activity {
         render();
     }
 
-    // ======================= شاشة الرحلة الجارية =======================
+    // ======================= شاشة الرحلة الجارية (لوحة حية) =======================
     private View buildLive() {
         LinearLayout v = new LinearLayout(this);
         v.setOrientation(LinearLayout.VERTICAL);
+        v.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
 
-        LinearLayout r1 = Ui.row(this);
-        vMode = Ui.tile(r1, "نمط القيادة", Ui.TEXT);
-        vSource = Ui.tile(r1, "مصدر الحركة", Ui.EV);
-        vSpeed = Ui.tile(r1, "السرعة", Ui.TEXT);
-        vElapsed = Ui.tile(r1, "المدة", Ui.TEXT);
-        v.addView(r1);
+        // الشريط العلوي: النمط + المصدر + الوقت
+        LinearLayout top = Ui.row(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        vMode = pill("—", Ui.CARD2, Ui.TEXT);
+        top.addView(vMode);
+        vSource = pill("—", Ui.CARD2, Ui.TEXT);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
+        slp.setMarginStart(Ui.dp(this, 10));
+        top.addView(vSource, slp);
+        vStart = Ui.text(this, "", 15, Ui.MUTED, false);
+        vStart.setPadding(Ui.dp(this, 16), 0, 0, 0);
+        top.addView(vStart, new LinearLayout.LayoutParams(0, -2, 1f));
+        vElapsed = Ui.text(this, "0:00:00", 26, Ui.TEXT, true);
+        top.addView(vElapsed);
+        v.addView(top);
 
-        LinearLayout r2 = Ui.row(this);
-        vFuelFlow = Ui.tile(r2, "استهلاك البنزين الآن", Ui.ENG);
-        vPower = Ui.tile(r2, "قدرة البطارية الآن", Ui.EV);
-        vSoc = Ui.tile(r2, "البطارية", Ui.EV);
-        vFuel = Ui.tile(r2, "الوقود", Ui.ENG);
-        v.addView(r2);
+        // اللوحة: EV | الدائرة | Engine
+        LinearLayout dash = Ui.row(this);
+        dash.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout ev = livePanel(TripSession.EV);
+        LinearLayout eng = livePanel(TripSession.ENG);
+        LinearLayout mid = new LinearLayout(this);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.setGravity(Gravity.CENTER_HORIZONTAL);
+        mid.addView(Ui.text(this, "TOTAL TRIP", 14, Ui.MUTED, true));
+        vTotal = Ui.text(this, "0.0 km", 30, Ui.TEXT, true);
+        mid.addView(vTotal);
+        vDonut = new DonutView(this);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(Ui.dp(this, 190), Ui.dp(this, 190));
+        dlp.topMargin = Ui.dp(this, 8);
+        mid.addView(vDonut, dlp);
 
-        LinearLayout r3 = Ui.row(this);
-        vDist = Ui.tile(r3, "المسافة", Ui.TEXT);
-        vEvShare = Ui.tile(r3, "نسبة الكهرباء", Ui.EV);
-        vFuelUsed = Ui.tile(r3, "بنزين مستهلك", Ui.ENG);
-        vKwhOut = Ui.tile(r3, "كهرباء مستهلكة", Ui.EV);
-        vKwhIn = Ui.tile(r3, "كهرباء مسترجعة", Ui.GOOD);
-        v.addView(r3);
+        int gap = Ui.dp(this, 12);
+        dash.addView(ev, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(Ui.dp(this, 230), -2);
+        mlp.setMargins(gap, 0, gap, 0);
+        dash.addView(mid, mlp);
+        dash.addView(eng, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams dalp = new LinearLayout.LayoutParams(-1, -2);
+        dalp.topMargin = Ui.dp(this, 14);
+        v.addView(dash, dalp);
 
+        // القراءات اللحظية + زر الإنهاء
         LinearLayout bottom = Ui.row(this);
         bottom.setGravity(Gravity.CENTER_VERTICAL);
-        vStart = Ui.text(this, "", 18, Ui.MUTED, false);
-        bottom.addView(vStart, new LinearLayout.LayoutParams(0, -2, 1f));
-        bottom.addView(Ui.button(this, "■   END", Ui.BAD, x -> confirmEnd()));
+        vSpeed = Ui.tile(bottom, "Speed", Ui.TEXT);
+        vPower = Ui.tile(bottom, "Battery power", Ui.EV);
+        vFuelFlow = Ui.tile(bottom, "Fuel flow", Ui.ENG);
+        vLevels = Ui.tile(bottom, "Battery · Fuel", Ui.TEXT);
+        TextView end = Ui.button(this, "■  END", Ui.BAD, x -> confirmEnd());
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(-2, -2);
+        elp.setMarginStart(Ui.dp(this, 8));
+        bottom.addView(end, elp);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
-        blp.topMargin = Ui.dp(this, 16);
+        blp.topMargin = Ui.dp(this, 10);
         v.addView(bottom, blp);
 
         ScrollView sv = new ScrollView(this);
         sv.addView(v);
         return sv;
+    }
+
+    private TextView pill(String s, int bg, int color) {
+        TextView t = Ui.text(this, s, 18, color, true);
+        t.setBackground(Ui.round(bg, Ui.dp(this, 10)));
+        t.setPadding(Ui.dp(this, 16), Ui.dp(this, 6), Ui.dp(this, 16), Ui.dp(this, 6));
+        return t;
+    }
+
+    /** لوحة EV أو Engine: صف لكل نمط (اسم + شريط مسافة + طاقة/وقود) ثم المجموع. */
+    private LinearLayout livePanel(int kind) {
+        boolean isEv = kind == TripSession.EV;
+        int color = isEv ? Ui.EV : Ui.ENG;
+        LinearLayout p = Ui.card(this);
+        p.addView(Ui.text(this, isEv ? "⚡ EV" : "⛽ ENGINE", 22, color, true));
+        for (int m = 0; m < 4; m++) {
+            LinearLayout r = Ui.row(this);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            int pad = Ui.dp(this, 6);
+            r.setPadding(pad, pad, pad, pad);
+            r.addView(Ui.text(this, TripSession.MODE_NAMES[m], 16, Ui.TEXT, true),
+                    new LinearLayout.LayoutParams(Ui.dp(this, 72), -2));
+            BarView bar = new BarView(this, color);
+            bar.set(0, "—");
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, Ui.dp(this, 30), 1f);
+            blp.setMarginEnd(Ui.dp(this, 8));
+            r.addView(bar, blp);
+            TextView val = Ui.text(this, "—", 15, Ui.TEXT, false);
+            val.setGravity(Gravity.END);
+            r.addView(val, new LinearLayout.LayoutParams(Ui.dp(this, 82), -2));
+            vBars[m][kind] = bar;
+            vVals[m][kind] = val;
+            vRows[m][kind] = r;
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+            rlp.topMargin = Ui.dp(this, 4);
+            p.addView(r, rlp);
+        }
+        TextView total = Ui.text(this, "Total —", 16, color, true);
+        total.setPadding(Ui.dp(this, 6), Ui.dp(this, 10), 0, 0);
+        p.addView(total);
+        if (isEv) vEvTotal = total; else vEngTotal = total;
+        return p;
     }
 
     private void updateLive() {
@@ -363,13 +436,41 @@ public class MainActivity extends Activity {
         TripSession s = svc.session();
         if (s == null) return;
 
-        vMode.setText(Live.modeName(l.driveMode));
+        // الشريط العلوي
+        String mode = Live.modeName(l.driveMode);
+        vMode.setText(mode);
+        vMode.setBackground(Ui.round(modeColor(l.driveMode), Ui.dp(this, 10)));
         vSource.setText(l.engineOn ? "⛽ ENGINE" : "⚡ EV");
-        vSource.setTextColor(l.engineOn ? Ui.ENG : Ui.EV);
-        vSpeed.setText(l.speedKmh == null ? "—" : Ui.num(l.speedKmh, 0) + " كم/س");
+        vSource.setBackground(Ui.round(l.engineOn ? 0xFF8A5A00 : 0xFF0D5C8C, Ui.dp(this, 10)));
         vElapsed.setText(Ui.clock(System.currentTimeMillis() - s.startWall));
+        vStart.setText("بدأت " + Ui.date(s.startWall));
 
-        vFuelFlow.setText(l.engineOn ? Ui.num(l.fuelFlowLph, 1) + " ل/س" : "0 ل/س");
+        // اللوحة
+        double max = 1.0; // كم: حتى لا تقفز الأشرطة في أول الرحلة
+        for (int m = 0; m < 4; m++)
+            for (int k = 0; k < 2; k++) max = Math.max(max, s.cells[m][k].distKm);
+        int curMode = TripSession.bucket(l.driveMode);
+        int curKind = l.engineOn ? TripSession.ENG : TripSession.EV;
+        for (int m = 0; m < 4; m++) {
+            for (int k = 0; k < 2; k++) {
+                TripSession.Cell c = s.cells[m][k];
+                boolean has = c.durMs > 0;
+                vBars[m][k].set((float) (c.distKm / max), has ? Ui.num(c.distKm, 1) + " km" : "");
+                vVals[m][k].setText(!has ? "—" : k == TripSession.EV
+                        ? Ui.num(c.kwhOut, 2) + " kWh" : Ui.num(c.fuelL, 2) + " L");
+                boolean current = m == curMode && k == curKind;
+                vRows[m][k].setBackground(current
+                        ? Ui.round(k == TripSession.EV ? 0x3329B6F6 : 0x33FFA726, Ui.dp(this, 10)) : null);
+            }
+        }
+        TripSession.Cell te = s.total(TripSession.EV), tg = s.total(TripSession.ENG);
+        vEvTotal.setText("Total  " + Ui.num(te.distKm, 1) + " km  ·  " + Ui.num(te.kwhOut, 2) + " kWh");
+        vEngTotal.setText("Total  " + Ui.num(tg.distKm, 1) + " km  ·  " + Ui.num(tg.fuelL, 2) + " L");
+        vTotal.setText(Ui.num(te.distKm + tg.distKm, 1) + " km");
+        vDonut.setData(te.distKm, tg.distKm);
+
+        // القراءات اللحظية
+        vSpeed.setText(l.speedKmh == null ? "—" : Ui.num(l.speedKmh, 0) + " km/h");
         Float kw = l.packKw;
         if (kw == null) vPower.setText("—");
         else {
@@ -377,15 +478,17 @@ public class MainActivity extends Activity {
             vPower.setText((out >= 0 ? "" : "+") + Ui.num(Math.abs(out), 1) + " kW");
             vPower.setTextColor(out >= 0 ? Ui.EV : Ui.GOOD);
         }
-        vSoc.setText(Ui.pct(l.socPct));
-        vFuel.setText(Ui.pct(l.fuelPct));
+        vFuelFlow.setText(l.engineOn ? Ui.num(l.fuelFlowLph, 1) + " L/h" : "0.0 L/h");
+        vLevels.setText(Ui.pct(l.socPct) + " · " + Ui.pct(l.fuelPct));
+    }
 
-        vDist.setText(Ui.num(s.totalDistKm(), 2) + " كم");
-        vEvShare.setText(Ui.num(s.evShare(), 0) + "%");
-        vFuelUsed.setText(Ui.num(s.totalFuelL(), 2) + " لتر");
-        vKwhOut.setText(Ui.num(s.totalKwhOut(), 2) + " kWh");
-        vKwhIn.setText(Ui.num(s.totalKwhIn(), 2) + " kWh");
-        vStart.setText("بدأت: " + Ui.date(s.startWall));
+    private static int modeColor(Integer mode) {
+        switch (TripSession.bucket(mode)) {
+            case TripSession.SPORT: return 0xFFB3261E;
+            case TripSession.ECO: return 0xFF2E7D32;
+            case TripSession.NORMAL: return 0xFF37474F;
+            default: return 0xFF5D4037;
+        }
     }
 
     private void confirmEnd() {
