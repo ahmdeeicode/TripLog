@@ -1,58 +1,52 @@
-# سجل الرحلات (TripLog)
+# رحلتي · My Trip
 
-تطبيق صغير جداً لشاشة جيتور، يسجّل كل رحلة تلقائياً في ملف CSV.
-بدون أي مكتبات خارجية، ويصل لبيانات السيارة بالـ reflection بنفس نهج Unlokit.
+تطبيق لشاشة جيتور: اضغط **START** في بداية الرحلة و **END** في نهايتها،
+فيعطيك تقريراً مقسّماً حسب **نمط القيادة** (Sport / Eco / Normal / Others)
+وحسب **الكهرباء (EV)** أو **المحرك (Engine)**.
+
+## ما يسجله
+| EV | Engine |
+|---|---|
+| Duration, Charge start/end, Re-charged, kWh consumed, Distance, Average speed | Duration, Fuel start/end, Refueled, Fuel consumed, Distance, Average speed |
 
 ## مصادر البيانات
-| المعلومة | Autolink (أولاً) | VHAL القياسي (احتياطي) |
-|---|---|---|
-| السرعة | `getVEHICLESPEEDVSOSIG` | `PERF_VEHICLE_SPEED` |
-| القير | `getVCU_1_G_PRNDGEARACT` (1=P 2=R 3=N 4=D) | `GEAR_SELECTION` |
-| العداد | `getFLZCU_TOTALODOMETERBACKUP` | `PERF_ODOMETER` |
-| البطارية % | `getBMS_SOCLIGHT` | `EV_BATTERY_LEVEL / INFO_EV_BATTERY_CAPACITY` |
-| الوقود % | — | `FUEL_LEVEL / INFO_FUEL_CAPACITY` |
-| المدى | `getVCU_WLTC_RANGEAVAL` | — |
-| الحرارة الخارجية | `getEXTERNALTEMPERATURE_C` | `ENV_OUTSIDE_TEMPERATURE` |
-| قدرة البطارية | `getBMS_44_PACKPOWERREALTIME` | — |
-
-## منطق الرحلة
-- تبدأ عند تجاوز السرعة 3 كم/س.
-- تنتهي عند: البقاء على **P لمدة دقيقة**، أو **3 دقائق بدون حركة**، أو **انقطاع البيانات دقيقتين** (إطفاء السيارة).
-- تُهمل الرحلات الأقصر من دقيقة أو 200 متر.
-- الرحلة الجارية تُحفظ كل 30 ثانية، فإذا أُغلقت الخدمة تُستأنف بعد عودتها.
-- القيم في `TripRecorder.java` أعلى الملف، وتقدر تعدّلها.
-
-## البناء
-**الطريقة الأولى (بدون Android Studio):** ارفع المجلد على مستودع GitHub، فيبني
-GitHub Actions الملف تلقائياً. حمّل `app-debug.apk` من تبويب Actions ← Artifacts.
-
-**الطريقة الثانية:** افتح المجلد في Android Studio، ثم Build ← Build APK.
-
-## التثبيت والصلاحيات
-```
-adb install -r app-debug.apk
-adb shell pm grant com.example.triplog android.car.permission.CAR_SPEED
-adb shell pm grant com.example.triplog android.car.permission.CAR_EXTERIOR_ENVIRONMENT
-adb shell dumpsys deviceidle whitelist +com.example.triplog
-```
-- مسار Autolink لا يحتاج صلاحيات غالباً، وهو المصدر الرئيسي.
-- `CAR_ENERGY` و`CAR_MILEAGE` صلاحيات نظام لا تُمنح لتطبيق عادي، وتُستخدم فقط في المسار الاحتياطي.
-- الأمر الأخير يمنع النظام من قتل الخدمة في الخلفية.
-
-## الملف الناتج
-```
-/sdcard/Android/data/com.example.triplog/files/trips.csv
-adb pull /sdcard/Android/data/com.example.triplog/files/trips.csv
-```
-| العمود | المعنى |
+| المعلومة | الإشارة |
 |---|---|
-| distance_km | المسافة من تكامل السرعة (دقيقة حتى للرحلات القصيرة) |
-| odo_distance_km | فرق العداد (للمقارنة) |
-| avg_kmh | متوسط السرعة أثناء الحركة فقط |
-| pack_pos_kwh / pack_neg_kwh | تكامل قدرة البطارية في الاتجاهين. أي اتجاه هو الصرف وأيهما الاسترجاع يختلف حسب الطراز؛ تأكد منه بمقارنة رحلة واحدة |
+| نمط القيادة | `HCU_DRIVEMODE_JT` (0=ECO، 1=NORMAL، 2=SPORT، الباقي Others) |
+| كهرباء أو محرك | `ENGINESPEED` ≥ 350 rpm = محرك |
+| السرعة والمسافة | `VEHICLESPEEDVSOSIG` |
+| الكهرباء المستهلكة والمسترجعة | `BMS_44_PACKPOWERREALTIME` |
+| البنزين المستهلك | `FUELROLLINGCOUNTER` (النبضة = 0.0000788519 لتر) |
+| البطارية % | `BMS_SOCLIGHT` |
+| الوقود % | VHAL `FUEL_LEVEL / INFO_FUEL_CAPACITY` |
 
-## للتشخيص
+الإشارات السريعة تُستقبل لحظياً عبر مستمع Autolink (`AlListener`)، والباقي يُقرأ كل ثانية.
+
+## هيكل المشروع
+- `autolink-stubs/` واجهة فارغة لمكتبة Autolink، للبناء فقط ولا تدخل في التطبيق.
+- `CarBridge` الاتصال بالسيارة.
+- `TripSession` تجميع الرحلة.
+- `TripService` خدمة تعمل أثناء الرحلة فقط.
+- `MainActivity` الشاشة الرئيسية.
+- `ReportActivity` التقرير.
+
+## المعايرة (أول رحلة)
+من زر **⚙ تشخيص**:
+- تأكد أن "المستمع اللحظي" مفعّل، وأن نبضات عداد الوقود تزيد مع عمل المحرك.
+- إذا ظهرت "الكهرباء المسترجعة" تزيد أثناء القيادة على الكهرباء، اضغط **عكس اتجاه البطارية**.
+
+## الصلاحيات (اختياري، للمسار الاحتياطي)
 ```
-adb logcat -s TripCar TripService
+adb shell pm grant com.example.triplog android.car.permission.CAR_SPEED
+adb shell pm grant com.example.triplog android.car.permission.CAR_ENERGY
+adb shell pm grant com.example.triplog android.car.permission.CAR_MILEAGE
+adb shell pm grant com.example.triplog android.car.permission.CAR_POWERTRAIN
 ```
-يظهر أي مصدر اتصل (Autolink أو VHAL)، وكل رحلة محفوظة.
+
+## الملفات
+كل رحلة تُحفظ في:
+`/sdcard/Android/data/com.example.triplog/files/trips/trip_<وقت>.json`
+
+## القادم
+- المرحلة 2: لوحة التقرير بالتصميم الكامل.
+- المرحلة 3: تصدير PDF و CSV.

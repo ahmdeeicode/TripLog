@@ -1,141 +1,299 @@
 package com.example.triplog;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * الوصول لبيانات السيارة بنفس نهج Unlokit: reflection كامل بدون stubs.
- *  1) Autolink:  com.autolink.manager.Api.createApi(ctx).getManager("car")
- *  2) احتياطي:  android.car.Car.createCar(ctx).getCarManager("property")  (VHAL القياسي)
+ * الاتصال بالسيارة:
+ *  1) Autolink CarManager  ← getManager("car")، مع مستمع لحظي (مثل DisplayMirror)
+ *  2) android.car CarPropertyManager (VHAL القياسي) ← احتياطي، ولمستوى الوقود
  */
 public final class CarBridge {
-    private static final String TAG = "TripCar";
+    private static final String TAG = "MyTripCar";
+    static final int ENGINE_ON_RPM = 350;      // نفس قيمة DisplayMirror
+    static final long ENGINE_OFF_HOLD_MS = 1500;
+    static final long FRESH_MS = 1500;
 
     // معرّفات VHAL القياسية
-    static final int PERF_VEHICLE_SPEED       = 0x11600207; // m/s
-    static final int PERF_ODOMETER            = 0x11600204; // km
-    static final int GEAR_SELECTION           = 0x11400400;
-    static final int FUEL_LEVEL               = 0x11600307; // ml
-    static final int INFO_FUEL_CAPACITY       = 0x11600104; // ml
-    static final int EV_BATTERY_LEVEL         = 0x11600308; // Wh
-    static final int INFO_EV_BATTERY_CAPACITY = 0x11600106; // Wh
-    static final int ENV_OUTSIDE_TEMPERATURE  = 0x11600703; // °C
+    static final int PERF_VEHICLE_SPEED = 0x11600207;
+    static final int PERF_ODOMETER = 0x11600204;
+    static final int FUEL_LEVEL = 0x11600307;          // ml
+    static final int INFO_FUEL_CAPACITY = 0x11600104;  // ml
+    static final int EV_BATTERY_LEVEL = 0x11600308;    // Wh
+    static final int INFO_EV_BATTERY_CAPACITY = 0x11600106;
 
-    private Object autolinkCar;
+    // أسماء ثوابت الإشارات (لتسجيل المستمع على إشارات محددة فقط)
+    private static final String[] PROP_CLASSES = {
+            "android.hardware.automotive.vehicle.V2_0.VehicleProperty",
+            "vendor.autolink.automotive.vehicle.V1_0.VendorSignalProperty",
+            "com.autolink.manager.car.VehicleProperty"};
+    private static final String[] RT_FIELDS = {
+            "VEHICLESPEEDVSOSIG_48A", "ENGINESPEED_4B2", "BMS_44_PACKPOWERREALTIME_53D",
+            "FUELROLLINGCOUNTER_4B2", "HCU_DRIVEMODE_JT_522"};
+
+    public interface Callback {
+        /** يُستدعى قبل تغيّر أي قيمة، لكي تُحسب الفترة الماضية بالقيم القديمة. */
+        void beforeChange(long now);
+        void onFuelLitres(double litres);
+    }
+
+    public final Live live = new Live();
+    private final Object lock = new Object();
+    private final FuelCounter fuel = new FuelCounter();
+    private volatile Callback callback;
+
+    private Object al;                                   // Autolink CarManager
     private final Map<String, Method> cache = new HashMap<>();
-
+    private Object listener;
     private Object propMgr;
     private Method getFloatProp, getIntProp;
-    private Float fuelCapacity, evCapacity;
+    private Float fuelCapMl, evCapWh;
+    private long lastConnectTry, lastEngineOnTs;
 
-    private long lastConnectTry;
+    public void setCallback(Callback c) { callback = c; }
 
+    // ================= الاتصال =================
     public void connect(Context ctx) {
-        long now = System.currentTimeMillis();
-        if (now - lastConnectTry < 10_000) return;
+        long now = SystemClock.elapsedRealtime();
+        if (al != null && propMgr != null) return;
+        if (lastConnectTry != 0 && now - lastConnectTry < 10_000) return;
         lastConnectTry = now;
         Context app = ctx.getApplicationContext();
 
-        if (autolinkCar == null) {
+        if (al == null) {
             try {
                 Object api = Class.forName("com.autolink.manager.Api")
                         .getMethod("createApi", Context.class).invoke(null, app);
-                if (api != null) {
-                    autolinkCar = api.getClass().getMethod("getManager", String.class).invoke(api, "car");
-                    if (autolinkCar != null) Log.i(TAG, "Autolink CarManager متصل");
+                if (api != null) al = api.getClass().getMethod("getManager", String.class).invoke(api, "car");
+                if (al != null) {
+                    Log.i(TAG, "Autolink CarManager connected");
+                    registerRealtime();
                 }
             } catch (Throwable t) {
-                Log.w(TAG, "Autolink غير متوفر: " + t);
+                Log.w(TAG, "Autolink unavailable: " + t);
             }
         }
-
         if (propMgr == null) {
             try {
                 Class<?> car = Class.forName("android.car.Car");
                 Object c = car.getMethod("createCar", Context.class).invoke(null, app);
-                if (c != null) {
-                    Object pm = car.getMethod("getCarManager", String.class).invoke(c, "property");
-                    if (pm != null) {
-                        getFloatProp = pm.getClass().getMethod("getFloatProperty", int.class, int.class);
-                        getIntProp = pm.getClass().getMethod("getIntProperty", int.class, int.class);
-                        propMgr = pm;
-                        Log.i(TAG, "CarPropertyManager متصل");
-                    }
+                Object pm = c == null ? null : car.getMethod("getCarManager", String.class).invoke(c, "property");
+                if (pm != null) {
+                    getFloatProp = pm.getClass().getMethod("getFloatProperty", int.class, int.class);
+                    getIntProp = pm.getClass().getMethod("getIntProperty", int.class, int.class);
+                    propMgr = pm;
+                    Log.i(TAG, "CarPropertyManager connected");
                 }
             } catch (Throwable t) {
-                Log.w(TAG, "android.car غير متوفر: " + t);
+                Log.w(TAG, "android.car unavailable: " + t);
+            }
+        }
+        live.source = al != null && propMgr != null ? "Autolink + VHAL"
+                : al != null ? "Autolink" : propMgr != null ? "VHAL" : "غير متصل";
+    }
+
+    private void registerRealtime() {
+        try {
+            Object l = new AlListener(this);
+            Method add1 = null, add2 = null;
+            for (Method m : al.getClass().getMethods()) {
+                if (!m.getName().equals("addCarPropertyListener")) continue;
+                if (m.getParameterTypes().length == 1) add1 = m;
+                else if (m.getParameterTypes().length == 2) add2 = m;
+            }
+            List<Integer> ids = resolveIds();
+            if (add2 != null && ids != null) {
+                try {
+                    add2.invoke(al, l, ids);
+                    listener = l;
+                    live.realtime = "مفعّل (" + ids.size() + " إشارات)";
+                } catch (Throwable t) {
+                    Log.w(TAG, "narrow register failed: " + t);
+                }
+            }
+            if (listener == null && add1 != null) {
+                add1.invoke(al, l);
+                listener = l;
+                live.realtime = "مفعّل (كل الإشارات)";
+            }
+            if (listener == null) live.realtime = "غير مدعوم";
+        } catch (Throwable t) {
+            live.realtime = "فشل: " + t.getClass().getSimpleName();
+            Log.w(TAG, "realtime listener unavailable", t);
+        }
+    }
+
+    private List<Integer> resolveIds() {
+        for (String cls : PROP_CLASSES) {
+            try {
+                Class<?> c = Class.forName(cls);
+                List<Integer> ids = new ArrayList<>();
+                for (String f : RT_FIELDS) ids.add(c.getField(f).getInt(null));
+                return ids;
+            } catch (Throwable ignored) { }
+        }
+        return null;
+    }
+
+    /** إلغاء تسجيل المستمع (للمعاينة في الشاشة الرئيسية). */
+    public void release() {
+        callback = null;
+        Object l = listener;
+        if (al == null || l == null) return;
+        listener = null;
+        for (Method m : al.getClass().getMethods()) {
+            if (m.getName().equals("removeCarPropertyListener") && m.getParameterTypes().length == 1) {
+                try { m.invoke(al, l); } catch (Throwable ignored) { }
+                return;
             }
         }
     }
 
-    public boolean connected() { return autolinkCar != null || propMgr != null; }
-
-    public String source() {
-        if (autolinkCar != null && propMgr != null) return "Autolink + VHAL";
-        if (autolinkCar != null) return "Autolink";
-        if (propMgr != null) return "VHAL";
-        return "غير متصل";
+    // ================= المستمع اللحظي =================
+    private void fire(long now) {
+        Callback c = callback;
+        if (c != null) c.beforeChange(now);
     }
 
-    public Snapshot read() {
-        Snapshot s = new Snapshot();
-        s.timeMs = System.currentTimeMillis();
-
-        // السرعة
-        s.speedKmh = range(al("getVEHICLESPEEDVSOSIG"), 0, 300);
-        if (s.speedKmh == null) {
-            Float ms = vf(PERF_VEHICLE_SPEED);
-            if (ms != null) s.speedKmh = range(Math.abs(ms) * 3.6f, 0, 300);
+    void onSpeed(float v, boolean rt) {
+        if (Float.isNaN(v) || v < 0 || v > 300) return;
+        long now = SystemClock.elapsedRealtime();
+        synchronized (lock) {
+            fire(now);
+            live.speedKmh = v;
+            if (rt) live.speedCbTs = now;
         }
+    }
 
-        // ناقل الحركة
-        Float g = al("getVCU_1_G_PRNDGEARACT");
-        if (g != null) s.gear = g.intValue();
-        else {
-            Integer vg = vi(GEAR_SELECTION); // VHAL: N=1 R=2 P=4 D=8+
-            if (vg != null) s.gear = vg == 4 ? 1 : vg == 2 ? 2 : vg == 1 ? 3 : vg >= 8 ? 4 : null;
+    void onRpm(int rpm, boolean rt) {
+        if (rpm < 0 || rpm > 10000) return;
+        long now = SystemClock.elapsedRealtime();
+        synchronized (lock) {
+            fire(now);
+            live.rpm = rpm;
+            if (rt) live.rpmCbTs = now;
+            updateEngine(now);
         }
+    }
 
-        // العداد
-        s.odometerKm = range(al("getFLZCU_TOTALODOMETERBACKUP"), 0.1f, 2_000_000);
-        if (s.odometerKm == null) s.odometerKm = range(vf(PERF_ODOMETER), 0.1f, 2_000_000);
+    void onPower(float kw, boolean rt) {
+        if (Float.isNaN(kw) || Math.abs(kw) > 500) return;
+        long now = SystemClock.elapsedRealtime();
+        synchronized (lock) {
+            fire(now);
+            live.packKw = kw;
+            if (rt) live.powerCbTs = now;
+        }
+    }
+
+    void onMode(int mode, boolean rt) {
+        if (mode < 0 || mode > 30) return;
+        long now = SystemClock.elapsedRealtime();
+        synchronized (lock) {
+            if (live.driveMode == null || live.driveMode != mode) fire(now);
+            live.driveMode = mode;
+            if (rt) live.modeCbTs = now;
+        }
+    }
+
+    void onFuelCounter(float raw) {
+        long now = SystemClock.elapsedRealtime();
+        double l = fuel.update(raw, now);
+        live.fuelCbTs = now;
+        live.fuelCbCount++;
+        if (l > 0) {
+            Callback c = callback;
+            if (c != null) c.onFuelLitres(l);
+        }
+    }
+
+    private void updateEngine(long now) {
+        Integer r = live.rpm;
+        boolean on = r != null && r >= ENGINE_ON_RPM;
+        if (on) lastEngineOnTs = now;
+        boolean newState = on || (live.engineOn && now - lastEngineOnTs < ENGINE_OFF_HOLD_MS);
+        if (newState != live.engineOn) {
+            fire(now);
+            live.engineOn = newState;
+        }
+    }
+
+    // ================= القراءة الدورية (كل ثانية) =================
+    public void poll() {
+        long now = SystemClock.elapsedRealtime();
+
+        if (now - live.speedCbTs > FRESH_MS) {
+            Float v = al("getVEHICLESPEEDVSOSIG");
+            if (v == null) { Float ms = vf(PERF_VEHICLE_SPEED); if (ms != null) v = Math.abs(ms) * 3.6f; }
+            if (v != null) onSpeed(v, false);
+        }
+        if (now - live.rpmCbTs > FRESH_MS) {
+            Float r = al("getENGINESPEED");
+            if (r != null) onRpm(r.intValue(), false);
+        }
+        if (now - live.powerCbTs > FRESH_MS) {
+            Float p = al("getBMS_44_PACKPOWERREALTIME");
+            if (p != null) onPower(p, false);
+        }
+        if (now - live.modeCbTs > FRESH_MS) {
+            Float m = al("getHCU_DRIVEMODE_JT");
+            if (m == null) m = al("getATCM_DRIVEMODESW");
+            if (m != null) onMode(m.intValue(), false);
+        }
+        // إذا لم يصل المستمع اللحظي، نحاول قراءة العداد دورياً (أقل دقة)
+        if (now - live.fuelCbTs > FRESH_MS) {
+            Float raw = al("getFUELROLLINGCOUNTER");
+            if (raw != null) {
+                double l = fuel.update(raw, now);
+                if (l > 0) { Callback c = callback; if (c != null) c.onFuelLitres(l); }
+            }
+        }
+        synchronized (lock) { updateEngine(now); }
+        live.fuelFlowLph = live.engineOn ? fuel.flowLph(now) : 0f;
 
         // البطارية
-        s.socPct = range(al("getBMS_SOCLIGHT"), 0, 100);
-        if (s.socPct == null) {
-            if (evCapacity == null) evCapacity = vf(INFO_EV_BATTERY_CAPACITY);
+        Float soc = range(al("getBMS_SOCLIGHT"), 0, 100);
+        if (soc == null) {
+            if (evCapWh == null) evCapWh = vf(INFO_EV_BATTERY_CAPACITY);
             Float lvl = vf(EV_BATTERY_LEVEL);
-            if (lvl != null && evCapacity != null && evCapacity > 0) s.socPct = range(lvl / evCapacity * 100f, 0, 100);
+            if (lvl != null && evCapWh != null && evCapWh > 0) soc = range(lvl / evCapWh * 100f, 0, 100);
+        }
+        live.socPct = soc;
+
+        // الوقود (VHAL)
+        if (fuelCapMl == null) fuelCapMl = vf(INFO_FUEL_CAPACITY);
+        Float fuelMl = vf(FUEL_LEVEL);
+        if (fuelMl != null && fuelCapMl != null && fuelCapMl > 0) {
+            live.fuelPct = range(fuelMl / fuelCapMl * 100f, 0, 100);
+            live.fuelLitres = fuelMl / 1000f;
         }
 
-        // الوقود (VHAL فقط، كما يفعل Unlokit)
-        if (fuelCapacity == null) fuelCapacity = vf(INFO_FUEL_CAPACITY);
-        Float fuel = vf(FUEL_LEVEL);
-        if (fuel != null && fuelCapacity != null && fuelCapacity > 0) s.fuelPct = range(fuel / fuelCapacity * 100f, 0, 100);
+        Float odo = range(al("getFLZCU_TOTALODOMETERBACKUP"), 0.1f, 2_000_000);
+        if (odo == null) odo = range(vf(PERF_ODOMETER), 0.1f, 2_000_000);
+        live.odometerKm = odo;
 
-        Float r = range(al("getVCU_WLTC_RANGEAVAL"), 0, 3000);
-        if (r != null) s.rangeKm = r.intValue();
-
-        s.outsideTempC = range(al("getEXTERNALTEMPERATURE_C"), -50, 70);
-        if (s.outsideTempC == null) s.outsideTempC = range(vf(ENV_OUTSIDE_TEMPERATURE), -50, 70);
-
-        s.packPowerKw = range(al("getBMS_44_PACKPOWERREALTIME"), -500, 500);
-        return s;
+        Float g = al("getVCU_1_G_PRNDGEARACT");
+        live.gear = g == null ? null : g.intValue();
     }
 
-    // ---------- Autolink: استدعاء getter بالاسم ----------
+    // ================= أدوات =================
     private Float al(String name) {
-        Object car = autolinkCar;
+        Object car = al;
         if (car == null) return null;
         Method m;
-        if (cache.containsKey(name)) m = cache.get(name);
-        else {
-            try { m = car.getClass().getMethod(name); } catch (Throwable t) { m = null; }
-            cache.put(name, m);
+        synchronized (cache) {
+            if (cache.containsKey(name)) m = cache.get(name);
+            else {
+                try { m = car.getClass().getMethod(name); } catch (Throwable t) { m = null; }
+                cache.put(name, m);
+            }
         }
         if (m == null) return null;
         try {
@@ -146,22 +304,11 @@ public final class CarBridge {
         }
     }
 
-    // ---------- VHAL القياسي ----------
     private Float vf(int id) {
         if (propMgr == null) return null;
         try {
             Object v = getFloatProp.invoke(propMgr, id, 0);
             return v instanceof Float ? (Float) v : null;
-        } catch (Throwable t) {
-            return null; // غالباً: صلاحية ناقصة أو الخاصية غير مدعومة
-        }
-    }
-
-    private Integer vi(int id) {
-        if (propMgr == null) return null;
-        try {
-            Object v = getIntProp.invoke(propMgr, id, 0);
-            return v instanceof Integer ? (Integer) v : null;
         } catch (Throwable t) {
             return null;
         }

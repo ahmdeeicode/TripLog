@@ -9,9 +9,9 @@ android {
     defaultConfig {
         applicationId 'com.example.triplog'
         minSdk 28
-        targetSdk 33          // مثل تطبيقات الشاشة: يتجنب قيود Android 14 على الخدمات الأمامية
-        versionCode 1
-        versionName '1.0'
+        targetSdk 33
+        versionCode 2
+        versionName '2.0'
     }
 
     buildTypes {
@@ -23,4 +23,8 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-// لا توجد أي مكتبات خارجية: كل الوصول للسيارة بالـ reflection
+
+dependencies {
+    // للبناء فقط: الكلاس الحقيقي يأتي من نظام السيارة (uses-library autolink.sdk)
+    compileOnly project(':autolink-stubs')
+}
