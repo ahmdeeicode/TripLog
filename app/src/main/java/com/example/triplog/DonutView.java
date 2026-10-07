@@ -13,6 +13,7 @@ final class DonutView extends View {
     private final Paint arc = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint small = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint big = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint eng = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
     private float evFrac;
     private boolean hasData;
@@ -28,6 +29,9 @@ final class DonutView extends View {
         big.setColor(Ui.TEXT);
         big.setTextAlign(Paint.Align.CENTER);
         big.setTypeface(Typeface.DEFAULT_BOLD);
+        eng.setColor(Ui.ENG);
+        eng.setTextAlign(Paint.Align.CENTER);
+        eng.setTypeface(Typeface.DEFAULT_BOLD);
     }
 
     void setData(double evKm, double engKm) {
@@ -61,9 +65,17 @@ final class DonutView extends View {
             }
         }
 
-        small.setTextSize(s * 0.12f);
-        big.setTextSize(s * 0.24f);
-        c.drawText("EV", cx, cy - s * 0.05f, small);
-        c.drawText(hasData ? Math.round(evFrac * 100) + "%" : "—", cx, cy + s * 0.18f, big);
+        small.setTextSize(s * 0.10f);
+        big.setTextSize(s * 0.22f);
+        eng.setTextSize(s * 0.09f);
+        c.drawText("EV", cx, cy - s * 0.12f, small);
+        if (!hasData) {
+            c.drawText("—", cx, cy + s * 0.08f, big);
+            return;
+        }
+        int evPct = Math.round(evFrac * 100);
+        c.drawText(evPct + "%", cx, cy + s * 0.08f, big);
+        // نسبة المحرك = الباقي، حتى يكون المجموع 100%
+        c.drawText("ENGINE " + (100 - evPct) + "%", cx, cy + s * 0.21f, eng);
     }
 }
