@@ -345,7 +345,7 @@ public class MainActivity extends Activity {
         for (TripSession s : trips) {
             km += s.totalDistKm();
             evKm += s.total(TripSession.EV).distKm;
-            kwh += s.totalKwhOut();
+            kwh += s.netKwh();
             litres += s.totalFuelL();
         }
         LinearLayout r = Ui.row(this);
@@ -383,9 +383,9 @@ public class MainActivity extends Activity {
         blp.bottomMargin = Ui.dp(this, 10);
         c.addView(bar, blp);
 
-        c.addView(Ui.text(this, String.format(Locale.US, "\u2066⚡ %s%%  ·  %s kWh     ⛽ %s L     ⏱ %s\u2069",
-                Ui.num(s.evShare(), 0), Ui.num(s.totalKwhOut(), 2), Ui.num(s.totalFuelL(), 2),
-                Ui.dur(s.totalDurMs())), 15, Ui.MUTED, false));
+        c.addView(Ui.text(this, String.format(Locale.US, "\u2066⚡ %s%%  ·  %s kWh     ⛽ %s L     ⏱ %s     ⌀ %s km/h\u2069",
+                Ui.num(s.evShare(), 0), Ui.num(s.netKwh(), 2), Ui.num(s.totalFuelL(), 2),
+                Ui.dur(s.totalDurMs()), Ui.num(Ui.avg(s.totalDistKm(), s.totalDurMs()), 0)), 15, Ui.MUTED, false));
 
         File f = s.file;
         c.setOnClickListener(v -> openReport(f));

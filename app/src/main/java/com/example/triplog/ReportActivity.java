@@ -86,8 +86,10 @@ public class ReportActivity extends Activity {
         // كهرباء القيادة ÷ مسافة الكهرباء، والبنزين ÷ مسافة المحرك
         TripSession.Cell ev = s.total(TripSession.EV), eng = s.total(TripSession.ENG);
         Ui.tile(r, "EV distance", Ui.EV).setText(Ui.num(ev.distKm, 1) + " km");
-        Ui.tile(r, "Battery used", Ui.EV).setText(Ui.num(s.totalKwhOut(), 2) + " kWh");
-        Ui.tile(r, "kWh/100 km", Ui.EV).setText(ev.distKm > 0.5 ? Ui.num(ev.kwhOut / ev.distKm * 100, 1) : "—");
+        // الصافي (المصروف ناقص المسترجع بالفرامل) هو ما ينقص فعلاً من البطارية
+        Ui.tile(r, "Battery used (net)", Ui.EV).setText(Ui.num(s.netKwh(), 2) + " kWh");
+        Ui.tile(r, "kWh/100 km", Ui.EV).setText(ev.distKm > 0.5 ? Ui.num((ev.kwhOut - ev.kwhIn) / ev.distKm * 100, 1) : "—");
+        Ui.tile(r, "Regen", Ui.GOOD).setText(Ui.num(s.totalKwhIn(), 2) + " kWh");
         Ui.tile(r, "Engine distance", Ui.ENG).setText(Ui.num(eng.distKm, 1) + " km");
         Ui.tile(r, "Fuel used", Ui.ENG).setText(Ui.num(s.totalFuelL(), 2) + " L");
         Ui.tile(r, "L/100 km", Ui.ENG).setText(eng.distKm > 0.5 ? Ui.num(eng.fuelL / eng.distKm * 100, 1) : "—");

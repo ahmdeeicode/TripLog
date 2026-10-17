@@ -142,6 +142,8 @@ public final class TripSession {
     public synchronized double totalFuelL() { return total(EV).fuelL + total(ENG).fuelL; }
     public synchronized double totalKwhOut() { return total(EV).kwhOut + total(ENG).kwhOut; }
     public synchronized double totalKwhIn() { return total(EV).kwhIn + total(ENG).kwhIn; }
+    /** صافي ما صُرف من البطارية = الخارج منها ناقص الراجع إليها (يطابق نزول نسبة البطارية). */
+    public synchronized double netKwh() { return totalKwhOut() - totalKwhIn(); }
     public synchronized long totalDurMs() { return total(EV).durMs + total(ENG).durMs; }
 
     /** نسبة المسافة على الكهرباء. */
